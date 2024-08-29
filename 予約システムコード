@@ -1,0 +1,1703 @@
+// LINE Messaging APIのチャネルアクセストークン。これを使ってLINEのAPIにアクセスする。
+const CHANNEL_ACCESS_TOKEN = '0YU5gWvZd3IlR/XO2S8L2U6LL/vPwQr6zV2pGoVFaYFOnhZcDx7WoxnAcR7G58j2TBj+FTYOTlI7bmDiQ39/8jhs4xDdnQSHqqmI9eG0RWE4Q7i/g8G/JdRFEPoxUYMXUq3nxrpRYdKxAyWPH+93lgdB04t89/1O/w1cDnyilFU=';
+// 使用するGoogleカレンダーのID。予約の管理に使う。
+const CALENDAR_ID = 'ca8ec68380d17040736928c24a298fa9f32d9c8a0f7dc598e3f5126be055220c@group.calendar.google.com';
+
+// この関数はPOSTリクエストを受け取った際に呼び出されます
+function doPost(e) {
+  try {
+    // リクエストデータを解析
+    const data = JSON.parse(e.postData.contents); // POSTリクエストのデータを解析
+    const replyToken = data.events[0].replyToken; // 返信に必要なトークン
+    const userId = data.events[0].source.userId; // ユーザーID
+    const userMessage = data.events[0].message.text; // ユーザーからのメッセージ
+    const calendar = CalendarApp.getCalendarById(CALENDAR_ID); // Googleカレンダーの取得
+
+    if (typeof replyToken === 'undefined') {
+      return; // 返信トークンがない場合は終了
+    }
+
+let selectedMenu = '';  // ユーザーがメニューを選択したかどうかを判断するための変数
+
+    if (userMessage === '予約確認') {
+      const now = new Date(); // 現在の日時を取得
+      const events = calendar.getEvents(now, new Date('2100-12-31'), { search: userId });
+
+      if (events.length > 0) {
+        let message = [];
+
+        // 取得した予約イベントごとに処理
+        events.forEach(event => {
+          const startTime = Utilities.formatDate(event.getStartTime(), 'Asia/Tokyo', 'yyyy年MM月dd日 HH:mm'); // イベント開始時間をフォーマット
+          const description = event.getDescription(); // イベントの詳細（予約フォームの内容）を取得
+          // メニューの取得
+          const menuMatch = description.match(/メニュー:\s*(.*?)\n/);
+          let menuText = '';
+          if (menuMatch && menuMatch.length > 1) {
+            menuText = menuMatch[1].trim(); // メニュー名を取得
+          }
+
+          // メッセージの内容を作成
+          message.push({
+            type: 'bubble',
+            body: {
+              type: 'box',
+              layout: 'vertical',
+              contents: [
+                {
+                  type: 'text',
+                  text: '予約確認', // メッセージタイトル
+                  weight: 'bold',
+                  size: 'lg'
+                },
+                {
+                  type: 'text',
+                  text: `予約日付: ${startTime}`, // 予約日付
+                  margin: 'md',
+                  wrap: true // 自動改行を有効にする
+                },
+                {
+                  type: 'text',
+                  text: `メニュー: ${menuText}`, // 予約メニュー
+                  margin: 'md',
+                  wrap: true // 自動改行を有効にする
+                }
+              ]
+            }
+          });
+        });
+
+        // 予約確認メッセージを送信
+        replyFlexMessage(replyToken, message);
+      } else {
+        // 予約が見つからない場合のメッセージ
+        replyFlexMessage(replyToken, [{
+          type: 'bubble',
+          body: {
+            type: 'box',
+            layout: 'vertical',
+            contents: [
+              {
+                type: 'text',
+                text: '予約確認', // メッセージタイトル
+                weight: 'bold',
+                size: 'lg'
+              },
+              {
+                type: 'text',
+                text: '予約が見つかりませんでした。',
+                margin: 'md',
+                wrap: true // 自動改行を有効にする
+              }
+            ]
+          }
+        }]);
+      }
+} else if (userMessage === '予約の空き状況') {
+  const now = new Date(); // 現在の日時を取得
+
+  // 今月、1か月後、2か月後、3か月後の選択肢を作成
+  const monthOptions = [];
+  for (let i = 0; i < 4; i++) {
+    const targetDate = new Date(now);
+    targetDate.setMonth(now.getMonth() + i);
+    const monthLabel = Utilities.formatDate(targetDate, 'Asia/Tokyo', 'yyyy年MM月');
+    monthOptions.push({
+      type: 'button',
+      action: {
+        type: 'message',
+        label: monthLabel,
+        text: `${monthLabel}の空き状況`
+      },
+      style: 'primary',
+      margin: 'xs'
+    });
+  }
+
+  // メッセージの内容を作成
+  let message = {
+    type: 'bubble',
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      contents: [
+        {
+          type: 'text',
+          text: '予約の空き状況を\n確認したい月を選択してください',
+          weight: 'bold',
+          size: 'lg',
+          wrap: true
+        },
+        ...monthOptions
+      ]
+    }
+  };
+
+  // Flexメッセージを送信
+  replyFlexMessage(replyToken, [message]);
+
+} else if (userMessage.match(/(\d{4}年\d{1,2}月)の空き状況/)) {
+  const monthStr = userMessage.match(/(\d{4}年\d{1,2}月)/)[1];
+  const year = parseInt(monthStr.substring(0, 4), 10);
+  const month = parseInt(monthStr.substring(5, monthStr.indexOf('月')), 10) - 1;
+
+  const upperLowerOptions = [
+    {
+      type: 'button',
+      action: {
+        type: 'message',
+        label: '上旬',
+        text: `${monthStr}上旬の空き状況`
+      },
+      style: 'primary',
+      margin: 'xs'
+    },
+    {
+      type: 'button',
+      action: {
+        type: 'message',
+        label: '下旬',
+        text: `${monthStr}下旬の空き状況`
+      },
+      style: 'primary',
+      margin: 'xs'
+    }
+  ];
+
+  let message = {
+    type: 'bubble',
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      contents: [
+        {
+          type: 'text',
+          text: `${monthStr}の\n空き状況を確認したい期間を選択してください`,
+          weight: 'bold',
+          size: 'lg',
+          wrap: true
+        },
+        ...upperLowerOptions
+      ]
+    }
+  };
+
+  // Flexメッセージを送信
+  replyFlexMessage(replyToken, [message]);
+
+} else if (userMessage.match(/(\d{4}年\d{1,2}月)(上旬|下旬)の空き状況/)) {
+  const match = userMessage.match(/(\d{4}年\d{1,2}月)(上旬|下旬)の空き状況/);
+  const monthStr = match[1];
+  const period = match[2];
+  const year = parseInt(monthStr.substring(0, 4), 10);
+  const month = parseInt(monthStr.substring(5, monthStr.indexOf('月')), 10) - 1;
+
+  let startDay, endDay;
+  if (period === '上旬') {
+    startDay = 1;
+    endDay = 15;
+  } else {
+    startDay = 16;
+    endDay = new Date(year, month + 1, 0).getDate(); // 月末の日付
+  }
+
+  const dates = [];
+  for (let day = startDay; day <= endDay; day++) {
+    const date = new Date(year, month, day);
+    dates.push(Utilities.formatDate(date, 'Asia/Tokyo', 'yyyy年MM月dd日'));
+  }
+
+  let messageContents = dates.map(date => {
+    const dayOfWeek = new Date(date.replace(/年|月|日/g, '/')).getDay(); // 曜日を取得
+    const dateObj = new Date(date.replace(/年|月|日/g, '/')); // 日付オブジェクトを取得
+    const events = calendar.getEventsForDay(dateObj); // 該当日のイベントを取得
+    const isBusinessDay = events.some(event => event.getTitle() === '営業日'); // 営業日イベントがあるか確認
+
+    if (dayOfWeek === 3 && !isBusinessDay) { // 水曜日かつ営業日でない場合
+      return {
+        type: 'button',
+        action: {
+          type: 'message',
+          label: '定休日です',
+          text: '定休日です'
+        },
+        style: 'secondary',
+        margin: 'xs'
+      };
+    } else {
+      return {
+        type: 'button',
+        action: {
+          type: 'message',
+          label: `${date}`,
+          text: `${date}の空き状況`
+        },
+        style: 'primary',
+        margin: 'xs'
+      };
+    }
+  });
+
+  let message = {
+    type: 'bubble',
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      contents: [
+        {
+          type: 'text',
+          text: `${monthStr}${period}の空き状況を確認したい日を選択してください`,
+          weight: 'bold',
+          size: 'lg',
+          wrap: true
+        },
+        ...messageContents
+      ]
+    }
+  };
+
+  // Flexメッセージを送信
+  replyFlexMessage(replyToken, [message]);
+
+} else if (userMessage.match(/(\d{4}年\d{1,2}月\d{1,2}日)の空き状況/)) {
+  const dateStr = userMessage.match(/(\d{4}年\d{1,2}月\d{1,2}日)の空き状況/)[1];
+  const date = new Date(dateStr.replace(/年|月/g, '/').replace(/日/g, '')); // 文字列をDateオブジェクトに変換
+  const availableSlots = [];
+
+  // 指定された日のイベントを取得
+  const events = calendar.getEventsForDay(date);
+  let startHour, startMinute, endHour;
+
+  // 「営業日」というタイトルのイベントを探す
+  const businessEvent = events.find(event => event.getTitle() === '営業日');
+
+  if (businessEvent) {
+    // 営業日イベントの開始時間と終了時間を使用
+    const eventStartTime = businessEvent.getStartTime();
+    const eventEndTime = businessEvent.getEndTime();
+    startHour = eventStartTime.getHours();
+    startMinute = eventStartTime.getMinutes(); // 分を取得
+    endHour = eventEndTime.getHours();
+
+    // 営業時間内で空きスロットを検索
+    for (let hour = startHour; hour < endHour; hour++) {
+      for (let minute = (hour === startHour ? startMinute : 0); minute < 60; minute += 30) {
+        const startTime = new Date(date);
+        startTime.setHours(hour, minute, 0, 0); // 開始時間を設定
+        const endTime = new Date(startTime.getTime() + 30 * 60 * 1000); // 終了時間を開始時間から30分後に設定
+
+        // 空きがある時間帯を配列に追加
+        const currentEvents = calendar.getEvents(startTime, endTime);
+        const nonBusinessEvents = currentEvents.filter(event => event.getTitle() !== '営業日');
+
+        if (nonBusinessEvents.length === 0) {
+          availableSlots.push(startTime);
+        }
+      }
+    }
+  } else {
+    // 営業日イベントがない場合はデフォルトの曜日スケジュールを使用
+    const dayOfWeek = date.getDay(); // 曜日を取得
+    switch(dayOfWeek) {
+      case 3: // 水曜日
+        startHour = endHour = -1; // 定休日
+        break;
+      case 6: // 土曜日
+        startHour = 9;
+        endHour = 19;
+        break;
+      case 0: // 日曜日
+        startHour = 9;
+        endHour = 19;
+        break;
+      default: // 平日
+        startHour = 18;
+        endHour = 21;
+        break;
+    }
+
+    if (startHour !== -1) { // 定休日でない場合のみチェック
+      // 指定された時間帯をチェック
+      for (let hour = startHour; hour < endHour; hour++) {
+        for (let minute = 0; minute < 60; minute += 30) {
+          const startTime = new Date(date);
+          startTime.setHours(hour, minute, 0, 0); // 開始時間を設定
+          const endTime = new Date(startTime.getTime() + 30 * 60 * 1000); // 終了時間を開始時間から30分後に設定
+
+          // 空きがある時間帯を配列に追加
+          const currentEvents = calendar.getEvents(startTime, endTime);
+          const nonBusinessEvents = currentEvents.filter(event => event.getTitle() !== '営業日');
+
+          if (nonBusinessEvents.length === 0) {
+            availableSlots.push(startTime);
+          }
+        }
+      }
+    }
+  }
+
+  if (availableSlots.length > 0) {
+    // 空きがある時間帯のメッセージを作成
+    let availableTimes = availableSlots.map(slot => Utilities.formatDate(slot, 'Asia/Tokyo', 'HH:mm'));
+    let message = [{
+      type: 'bubble',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'text',
+            text: `${dateStr}`, // 日付
+            weight: 'bold',
+            size: 'xl',
+            color: '#1DB446',
+            margin: 'md'
+          },
+          {
+            type: 'separator',
+            margin: 'md'
+          },
+          {
+            type: 'text',
+            text: '予約可能時間は以下の通りです。\nご確認の上ご予約ください。',
+            wrap: true,
+            margin: 'md',
+            color: '#555555',
+            size: 'md'
+          },
+          {
+            type: 'box',
+            layout: 'vertical',
+            contents: availableTimes.map(time => ({
+              type: 'text',
+              text: time,
+              size: 'md',
+              color: '#111111',
+              margin: 'sm'
+            })),
+            margin: 'md'
+          }
+        ],
+        paddingAll: '20px',
+        backgroundColor: '#FFFFFF'
+      },
+      styles: {
+        body: {
+          backgroundColor: '#F0F0F0'
+        }
+      }
+    }];
+    // Flexメッセージを送信
+    replyFlexMessage(replyToken, message);
+  } else {
+    // 空きがない場合のメッセージ
+    replyFlexMessage(replyToken, [{
+      type: 'bubble',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'text',
+            text: `${dateStr}`, // 日付
+            weight: 'bold',
+            size: 'xl',
+            color: '#1DB446',
+            margin: 'md'
+          },
+          {
+            type: 'separator',
+            margin: 'md'
+          },
+          {
+            type: 'text',
+            text: '予約可能な時間はありません。',
+            wrap: true,
+            margin: 'md',
+            color: '#555555',
+            size: 'md'
+          }
+        ],
+        paddingAll: '20px',
+        backgroundColor: '#FFFFFF'
+      },
+      styles: {
+        body: {
+          backgroundColor: '#F0F0F0'
+        }
+      }
+    }]);
+  }
+    } else if (userMessage.startsWith('【予約フォーム】')) {
+      // ユーザーからのメッセージが「【予約フォーム】」で始まる場合
+      const reservationDetails = parseReservationForm(userMessage);
+
+      // 予約詳細が存在し、日付情報がある場合
+      if (reservationDetails && reservationDetails.dates && reservationDetails.dates.length > 0) {
+        // ユーザープロフィールを取得
+        const userProfile = getUserProfile(userId);
+        if (userProfile) {
+          const userName = userProfile.displayName;
+
+          // ユーザーの予約が既にあるか確認
+          const now = new Date();
+          const futureEvents = calendar.getEvents(now, new Date('2100-12-31'), { search: userId });
+          if (futureEvents.length > 0) {
+            // 既に予約がある場合のメッセージを送信
+            replyFlexMessage(replyToken, [{
+              type: 'bubble',
+              body: {
+                type: 'box',
+                layout: 'vertical',
+                contents: [
+                  {
+                    type: 'text',
+                    text: '予約通知',
+                    weight: 'bold',
+                    size: 'lg'
+                  },
+                  {
+                    type: 'text',
+                    text: '既に予約があります。\n予約が過ぎるまで新しい予約はできません。',
+                    margin: 'md',
+                    wrap: true // 自動改行を有効にする
+                  }
+                ]
+              }
+            }]);
+            return; // これ以上の処理を行わない
+          }
+
+          let reservationMade = false; // 予約が成功したかどうかのフラグ
+          let message = []; // 返信メッセージの配列
+
+reservationDetails.dates.forEach(date => {
+  const now = new Date();
+  const twoMonthsLater = new Date(now.getFullYear(), now.getMonth() + 2, now.getDate());
+
+  // 翌々月の予約がある場合、メッセージを返して処理を終了
+  if (date >= twoMonthsLater) {
+    replyFlexMessage(replyToken, [{
+      type: 'bubble',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'text',
+            text: '予約通知',
+            weight: 'bold',
+            size: 'lg'
+          },
+          {
+            type: 'text',
+            text: '翌々月のご予約は受け付けておりません。',
+            margin: 'md',
+            wrap: true // 自動改行を有効にする
+          }
+        ]
+      }
+    }]);
+    return; // これ以上の処理を行わない
+  }
+
+  // 営業時間を取得
+  const businessHours = getBusinessHours(date, calendar);
+
+  // 予約が成功していない、日付が有効、営業時間内、現在の日付より後、かつ2ヶ月以内の日付の場合
+  if (!reservationMade && isValidDate(date) && isWithinBusinessHours(date, businessHours) && (businessHours || !isSunday(date)) && date > now && date < twoMonthsLater) {
+    const endDate = new Date(date.getTime() + reservationDetails.duration * 60 * 1000); // 予約終了時間を設定
+    const events = calendar.getEvents(date, endDate);
+
+    // その時間帯にイベントが2つ未満の場合
+if (events.filter(event => event.getTitle() !== '営業日').length < 2) {
+      // 新しいイベントを作成
+      calendar.createEvent(
+        '予約: ' + reservationDetails.name,
+        date,
+        endDate,
+        {
+          description: `希望日時: ${Utilities.formatDate(date, 'Asia/Tokyo', 'yyyy年MM月dd日 HH:mm')}\nLINEの名前: ${userName}\nお名前: ${reservationDetails.name}\n電話番号: ${reservationDetails.phoneNumber}\nメニュー: ${reservationDetails.symptoms}\nご来店回数: ${reservationDetails.firstVisit}\nメッセージ: ${reservationDetails.message}`,
+          location: userId // userIdを場所に保存する
+        }
+      );
+
+      // 既存のリマインダートリガーを確認
+      const triggers = ScriptApp.getProjectTriggers();
+      let userTriggerExists = false;
+      for (let i = 0; i < triggers.length; i++) {
+        if (triggers[i].getHandlerFunction() == 'sendReminder' && triggers[i].getUniqueId() == userId) {
+          userTriggerExists = true;
+          break;
+        }
+      }
+
+      // リマインダーを設定
+      if (!userTriggerExists) {
+        ScriptApp.newTrigger('sendReminder')
+          .timeBased()
+          .at(new Date(date.getTime() - 24 * 60 * 60 * 1000)) // 24時間前
+          .create()
+          .getUniqueId(); // トリガーに一意のIDを設定
+      }
+
+      // 予約成功のメッセージを作成
+      message.push({
+        type: 'bubble',
+        body: {
+          type: 'box',
+          layout: 'vertical',
+          contents: [
+            {
+              type: 'text',
+              text: '予約通知',
+              weight: 'bold',
+              size: 'lg'
+            },
+            {
+              type: 'text',
+              text: `${Utilities.formatDate(date, 'Asia/Tokyo', 'yyyy年MM月dd日 HH:mm')}に\n予約完了いたしました。\nご来店心よりお待ちしております。`,
+              margin: 'md',
+              wrap: true // 自動改行を有効にする
+            }
+          ]
+        }
+      });
+      reservationMade = true; // 予約が成功したことを示す
+    }
+  }
+});
+
+// 予約が成功しなかった場合のメッセージを送信
+if (!reservationMade) {
+  replyFlexMessage(replyToken, [{
+    type: 'bubble',
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      contents: [
+        {
+          type: 'text',
+          text: '予約通知',
+          weight: 'bold',
+          size: 'lg'
+        },
+        {
+          type: 'text',
+          text: '全ての希望日時が埋まっています。\n他の日付をお試しください。',
+          margin: 'md',
+          wrap: true // 自動改行を有効にする
+        }
+      ]
+    }
+  }]);
+} else {
+  // 予約成功のメッセージを送信
+  replyFlexMessage(replyToken, message);
+}
+        } else {
+          // ユーザープロフィールが取得できなかった場合のメッセージを送信
+          replyFlexMessage(replyToken, [{
+            type: 'bubble',
+            body: {
+              type: 'box',
+              layout: 'vertical',
+              contents: [
+                {
+                  type: 'text',
+                  text: '予約フォーム',
+                  weight: 'bold',
+                  size: 'lg',
+                  wrap: true // 自動改行を有効にする
+                },
+                {
+                  type: 'text',
+                  text: 'ユーザープロフィールの取得に失敗しました。',
+                  margin: 'md',
+                  wrap: true // 自動改行を有効にする
+                }
+              ]
+            }
+          }]);
+        }
+      } else {
+        // 予約詳細に不足がある場合のメッセージを送信
+        replyFlexMessage(replyToken, [{
+          type: 'bubble',
+          body: {
+            type: 'box',
+            layout: 'vertical',
+            contents: [
+              {
+                type: 'text',
+                text: '予約フォーム',
+                weight: 'bold',
+                size: 'lg',
+                wrap: true // 自動改行を有効にする
+              },
+              {
+                type: 'text',
+                text: '情報に不足があります。\nすべての必須項目を入力してください。',
+                margin: 'md',
+                wrap: true // 自動改行を有効にする
+              }
+            ]
+          }
+        }]);
+      }
+    } else if (userMessage.startsWith('【同メニュー再予約】')) {
+      // ユーザーからのメッセージが「【同メニュー再予約】」で始まる場合
+      const reservationDetails = parseReservationForm(userMessage);
+
+      // 予約詳細が存在し、日付情報がある場合
+      if (reservationDetails && reservationDetails.dates && reservationDetails.dates.length > 0) {
+        // ユーザープロフィールを取得
+        const userProfile = getUserProfile(userId);
+        if (userProfile) {
+          const userName = userProfile.displayName;
+
+          // ユーザーの予約が既にあるか確認
+          const now = new Date();
+          const futureEvents = calendar.getEvents(now, new Date('2100-12-31'), { search: userId });
+          if (futureEvents.length > 0) {
+            // 既に予約がある場合のメッセージを送信
+            replyFlexMessage(replyToken, [{
+              type: 'bubble',
+              body: {
+                type: 'box',
+                layout: 'vertical',
+                contents: [
+                  {
+                    type: 'text',
+                    text: '予約通知',
+                    weight: 'bold',
+                    size: 'lg'
+                  },
+                  {
+                    type: 'text',
+                    text: '既に予約があります。\n予約が過ぎるまで新しい予約はできません。',
+                    margin: 'md',
+                    wrap: true // 自動改行を有効にする
+                  }
+                ]
+              }
+            }]);
+            return; // これ以上の処理を行わない
+          }
+
+          let reservationMade = false; // 予約が成功したかどうかのフラグ
+          let message = []; // 返信メッセージの配列
+
+    // 予約詳細の日付ごとに処理を行う
+    reservationDetails.dates.forEach(date => {
+      // まだ予約が成功しておらず、有効な日付で、営業時間内で、日曜日でなく、現在の日付より後の日付の場合
+      if (!reservationMade && isValidDate(date) && isWithinBusinessHours(date) && !isSunday(date) && date > new Date()) {
+        const endDate = new Date(date.getTime() + reservationDetails.duration * 60 * 1000); // details.duration 分後の時間を指定
+        const events = calendar.getEvents(date, endDate);
+
+        // その時間帯にイベントが2つ未満の場合
+        if (events.length < 2) {
+          // 新しいイベントを作成
+          calendar.createEvent(
+            'リピート予約: ' + reservationDetails.name,
+            date,
+            endDate,
+            {
+              description: `希望日時: ${Utilities.formatDate(date, 'Asia/Tokyo', 'yyyy年MM月dd日 HH:mm')}\nLINEの名前: ${userName}\nお名前: ${reservationDetails.name}\n電話番号: ${reservationDetails.phoneNumber}\nメニュー: ${reservationDetails.symptoms}\nLINEで予約数: ${reservationDetails.reservation}`,
+              location: userId // userIdを場所に保存する
+            }
+          );
+
+            // 既存のリマインダートリガーを確認
+            const triggers = ScriptApp.getProjectTriggers();
+            let userTriggerExists = false;
+            for (let i = 0; i < triggers.length; i++) {
+              if (triggers[i].getHandlerFunction() == 'sendReminder' && triggers[i].getUniqueId() == userId) {
+                userTriggerExists = true;
+                break;
+              }
+            }
+
+            // リマインダーを設定
+            if (!userTriggerExists) {
+              ScriptApp.newTrigger('sendReminder')
+                .timeBased()
+                .at(new Date(date.getTime() - 24 * 60 * 60 * 1000)) // 24時間前
+                .create()
+                .getUniqueId(); // トリガーに一意のIDを設定
+            }
+
+            // 予約成功のメッセージを作成
+            message.push({
+              type: 'bubble',
+              body: {
+                type: 'box',
+                layout: 'vertical',
+                contents: [
+                  {
+                    type: 'text',
+                    text: '予約通知',
+                    weight: 'bold',
+                    size: 'lg'
+                  },
+                  {
+                    type: 'text',
+                    text: `${Utilities.formatDate(date, 'Asia/Tokyo', 'yyyy年MM月dd日 HH:mm')}に\n予約完了いたしました。\nご来店心よりお待ちしております。`,
+                    margin: 'md',
+                    wrap: true // 自動改行を有効にする
+                  }
+                ]
+              }
+            });
+            reservationMade = true; // 予約が成功したことを示す
+          }
+        }
+      });
+
+// 予約が成功しなかった場合のメッセージを送信
+if (!reservationMade) {
+  replyFlexMessage(replyToken, [{
+    type: 'bubble',
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      contents: [
+        {
+          type: 'text',
+          text: '予約通知',
+          weight: 'bold',
+          size: 'lg'
+        },
+        {
+          type: 'text',
+          text: '全ての希望日時が埋まっています。\n他の日付をお試しください。',
+          margin: 'md',
+          wrap: true // 自動改行を有効にする
+        }
+      ]
+    }
+  }]);
+} else {
+  // 予約成功のメッセージを送信
+  replyFlexMessage(replyToken, message);
+}
+        } else {
+          // ユーザープロフィールが取得できなかった場合のメッセージを送信
+          replyFlexMessage(replyToken, [{
+            type: 'bubble',
+            body: {
+              type: 'box',
+              layout: 'vertical',
+              contents: [
+                {
+                  type: 'text',
+                  text: '予約フォーム',
+                  weight: 'bold',
+                  size: 'lg',
+                  wrap: true // 自動改行を有効にする
+                },
+                {
+                  type: 'text',
+                  text: 'ユーザープロフィールの取得に失敗しました。',
+                  margin: 'md',
+                  wrap: true // 自動改行を有効にする
+                }
+              ]
+            }
+          }]);
+        }
+      } else {
+        // 予約詳細に不足がある場合のメッセージを送信
+        replyFlexMessage(replyToken, [{
+          type: 'bubble',
+          body: {
+            type: 'box',
+            layout: 'vertical',
+            contents: [
+              {
+                type: 'text',
+                text: '予約フォーム',
+                weight: 'bold',
+                size: 'lg',
+                wrap: true // 自動改行を有効にする
+              },
+              {
+                type: 'text',
+                text: '情報に不足があります。\nすべての必須項目を入力してください。',
+                margin: 'md',
+                wrap: true // 自動改行を有効にする
+              }
+            ]
+          }
+        }]);
+      }
+    } else if (userMessage.startsWith('【別メニュー予約】')) {
+      // ユーザーからのメッセージが「【別メニュー予約】」で始まる場合
+      const reservationDetails = parseReservationForm(userMessage);
+
+      // 予約詳細が存在し、日付情報がある場合
+      if (reservationDetails && reservationDetails.dates && reservationDetails.dates.length > 0) {
+        // ユーザープロフィールを取得
+        const userProfile = getUserProfile(userId);
+        if (userProfile) {
+          const userName = userProfile.displayName;
+
+          // ユーザーの予約が既にあるか確認
+          const now = new Date();
+          const futureEvents = calendar.getEvents(now, new Date('2100-12-31'), { search: userId });
+          if (futureEvents.length > 0) {
+            // 既に予約がある場合のメッセージを送信
+            replyFlexMessage(replyToken, [{
+              type: 'bubble',
+              body: {
+                type: 'box',
+                layout: 'vertical',
+                contents: [
+                  {
+                    type: 'text',
+                    text: '予約通知',
+                    weight: 'bold',
+                    size: 'lg'
+                  },
+                  {
+                    type: 'text',
+                    text: '既に予約があります。\n予約が過ぎるまで新しい予約はできません。',
+                    margin: 'md',
+                    wrap: true // 自動改行を有効にする
+                  }
+                ]
+              }
+            }]);
+            return; // これ以上の処理を行わない
+          }
+
+          let reservationMade = false; // 予約が成功したかどうかのフラグ
+          let message = []; // 返信メッセージの配列
+
+    // 予約詳細の日付ごとに処理を行う
+    reservationDetails.dates.forEach(date => {
+      // まだ予約が成功しておらず、有効な日付で、営業時間内で、日曜日でなく、現在の日付より後の日付の場合
+      if (!reservationMade && isValidDate(date) && isWithinBusinessHours(date) && !isSunday(date) && date > new Date()) {
+        const endDate = new Date(date.getTime() + reservationDetails.duration * 60 * 1000); // 予約終了時間を設定
+        const events = calendar.getEvents(date, endDate);
+
+        // その時間帯にイベントが2つ未満の場合
+        if (events.length < 2) {
+          // 新しいイベントを作成
+          calendar.createEvent(
+            '別メニューリピート予約: ' + reservationDetails.name,
+            date,
+            endDate,
+            {
+              description: `希望日時: ${Utilities.formatDate(date, 'Asia/Tokyo', 'yyyy年MM月dd日 HH:mm')}\nLINEの名前: ${userName}\nお名前: ${reservationDetails.name}\n電話番号: ${reservationDetails.phoneNumber}\nメニュー: ${reservationDetails.symptoms}\nLINEで予約数: ${reservationDetails.reservation}`,
+              location: userId // userIdを場所に保存する
+            }
+          );
+
+            // 既存のリマインダートリガーを確認
+            const triggers = ScriptApp.getProjectTriggers();
+            let userTriggerExists = false;
+            for (let i = 0; i < triggers.length; i++) {
+              if (triggers[i].getHandlerFunction() == 'sendReminder' && triggers[i].getUniqueId() == userId) {
+                userTriggerExists = true;
+                break;
+              }
+            }
+
+            // リマインダーを設定
+            if (!userTriggerExists) {
+              ScriptApp.newTrigger('sendReminder')
+                .timeBased()
+                .at(new Date(date.getTime() - 24 * 60 * 60 * 1000)) // 24時間前
+                .create()
+                .getUniqueId(); // トリガーに一意のIDを設定
+            }
+
+          // 予約成功のメッセージを作成
+          message.push({
+            type: 'bubble',
+            body: {
+              type: 'box',
+              layout: 'vertical',
+              contents: [
+                {
+                  type: 'text',
+                  text: '予約通知',
+                  weight: 'bold',
+                  size: 'lg'
+                },
+                {
+                  type: 'text',
+                  text: `${Utilities.formatDate(date, 'Asia/Tokyo', 'yyyy年MM月dd日 HH:mm')}に\n予約完了いたしました。\nご来店心よりお待ちしております。`,
+                  margin: 'md',
+                  wrap: true // 自動改行を有効にする
+                }
+              ]
+            }
+          });
+          reservationMade = true; // 予約が成功したことを示す
+        }
+      }
+    });
+
+// 予約が成功しなかった場合のメッセージを送信
+if (!reservationMade) {
+  replyFlexMessage(replyToken, [{
+    type: 'bubble',
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      contents: [
+        {
+          type: 'text',
+          text: '予約通知',
+          weight: 'bold',
+          size: 'lg'
+        },
+        {
+          type: 'text',
+          text: '全ての希望日時が埋まっています。\n他の日付をお試しください。',
+          margin: 'md',
+          wrap: true // 自動改行を有効にする
+        }
+      ]
+    }
+  }]);
+} else {
+  // 予約成功のメッセージを送信
+  replyFlexMessage(replyToken, message);
+}
+        } else {
+          // ユーザープロフィールが取得できなかった場合のメッセージを送信
+          replyFlexMessage(replyToken, [{
+            type: 'bubble',
+            body: {
+              type: 'box',
+              layout: 'vertical',
+              contents: [
+                {
+                  type: 'text',
+                  text: '予約フォーム',
+                  weight: 'bold',
+                  size: 'lg',
+                  wrap: true // 自動改行を有効にする
+                },
+                {
+                  type: 'text',
+                  text: 'ユーザープロフィールの取得に失敗しました。',
+                  margin: 'md',
+                  wrap: true // 自動改行を有効にする
+                }
+              ]
+            }
+          }]);
+        }
+      } else {
+        // 予約詳細に不足がある場合のメッセージを送信
+        replyFlexMessage(replyToken, [{
+          type: 'bubble',
+          body: {
+            type: 'box',
+            layout: 'vertical',
+            contents: [
+              {
+                type: 'text',
+                text: '予約フォーム',
+                weight: 'bold',
+                size: 'lg',
+                wrap: true // 自動改行を有効にする
+              },
+              {
+                type: 'text',
+                text: '情報に不足があります。\nすべての必須項目を入力してください。',
+                margin: 'md',
+                wrap: true // 自動改行を有効にする
+              }
+            ]
+          }
+        }]);
+      }
+} else if (userMessage === '予約をキャンセル') {
+  // 現在の日付と時刻を取得
+  const now = new Date();
+  // 現在から2100年12月31日までのユーザーの予約を検索
+  const futureEvents = calendar.getEvents(now, new Date('2100-12-31'), { search: userId });
+
+  // 予約があるか確認
+  if (futureEvents.length > 0) {
+    // 予約の一覧を作成
+    let eventList = [];
+    futureEvents.forEach((event, index) => {
+      const startTime = event.getStartTime();
+      const formattedStartTime = Utilities.formatDate(startTime, 'Asia/Tokyo', 'MM月dd日 HH:mm');
+      
+      // イベントの詳細（予約フォームの内容）を取得
+      const description = event.getDescription();
+      // メニューの取得
+      const menuMatch = description.match(/メニュー:\s*(.*?)\n/);
+      let menuText = '';
+      if (menuMatch && menuMatch.length > 1) {
+        menuText = menuMatch[1].trim(); // メニュー名を取得
+      }
+
+      // 各ボタンの前に日付テキストを追加
+      eventList.push({
+        type: 'text',
+        text: `予約 ${index + 1}： ${formattedStartTime}\nメニュー：【${menuText}】`,
+        margin: 'md',
+        wrap: true
+      });
+      
+      eventList.push({
+        type: 'button',
+        action: {
+          type: 'message',
+          label: `予約 ${index + 1}をキャンセルする`,
+          text: `キャンセル: ${index}`
+        },
+        color: '#17c950', // 緑色
+        style: 'primary'
+      });
+    });
+
+    // ユーザーに予約一覧を表示
+    replyFlexMessage(replyToken, [{
+      type: 'bubble',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'text',
+            text: '予約をキャンセル',
+            weight: 'bold',
+            size: 'lg'
+          },
+          {
+            type: 'text',
+            text: 'キャンセルしたい予約を選択してください。',
+            margin: 'md',
+            wrap: true
+          },
+          {
+            type: 'box',
+            layout: 'vertical',
+            spacing: 'sm',
+            contents: eventList
+          }
+        ]
+      }
+    }]);
+  } else {
+    // キャンセルする予約がない場合のメッセージを送信
+    replyFlexMessage(replyToken, [{
+      type: 'bubble',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'text',
+            text: '予約をキャンセル',
+            weight: 'bold',
+            size: 'lg'
+          },
+          {
+            type: 'text',
+            text: '現在、キャンセルする予約がありません。',
+            margin: 'md',
+            wrap: true
+          }
+        ]
+      }
+    }]);
+  }
+} else if (userMessage.startsWith('キャンセル: ')) {
+  // キャンセルする予約のインデックスを取得
+  const eventIndex = parseInt(userMessage.replace('キャンセル: ', ''));
+  // 現在の日付と時刻を取得
+  const now = new Date();
+  // 現在から2100年12月31日までのユーザーの予約を検索
+  const futureEvents = calendar.getEvents(now, new Date('2100-12-31'), { search: userId });
+
+  if (futureEvents[eventIndex]) {
+    const event = futureEvents[eventIndex];
+    const startTime = event.getStartTime();
+    const timeDifference = startTime - now;
+
+    // 予約の開始時間が24時間以上先の場合
+    if (timeDifference > 24 * 60 * 60 * 1000) {
+      event.deleteEvent();
+      const formattedCancelledEvent = Utilities.formatDate(startTime, 'Asia/Tokyo', 'MM月dd日 HH:mm');
+      replyFlexMessage(replyToken, [{
+        type: 'bubble',
+        body: {
+          type: 'box',
+          layout: 'vertical',
+          contents: [
+            {
+              type: 'text',
+              text: '予約をキャンセル',
+              weight: 'bold',
+              size: 'lg'
+            },
+            {
+              type: 'text',
+              text: `${formattedCancelledEvent}の\n予約をキャンセルしました。`,
+              margin: 'md',
+              wrap: true
+            }
+          ]
+        }
+      }]);
+    } else {
+      replyFlexMessage(replyToken, [{
+        type: 'bubble',
+        body: {
+          type: 'box',
+          layout: 'vertical',
+          contents: [
+            {
+              type: 'text',
+              text: '予約をキャンセル',
+              weight: 'bold',
+              size: 'lg'
+            },
+            {
+              type: 'text',
+              text: '24時間以内の予約はキャンセルできません。\n変更をご希望の方は右上の\nLINEコールかチャットでお問い合わせください',
+              margin: 'md',
+              wrap: true
+            }
+          ]
+        }
+      }]);
+    }
+  } else {
+    replyFlexMessage(replyToken, [{
+      type: 'bubble',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'text',
+            text: '予約をキャンセル',
+            weight: 'bold',
+            size: 'lg'
+          },
+          {
+            type: 'text',
+            text: '指定された予約が見つかりません。',
+            margin: 'md',
+            wrap: true
+          }
+        ]
+      }
+    }]);
+  }
+    } else if (userMessage.match(/(\d{1,2})日空き/)) {
+      // メッセージから日付を抽出
+      const day = parseInt(userMessage.match(/(\d{1,2})日空き/)[1], 10);
+      // 現在の日付と時刻を取得
+      const now = new Date();
+      const month = now.getMonth();
+      const year = now.getFullYear();
+      // リクエストされた日付を作成
+      const requestedDate = new Date(year, month, day);
+
+      // 空き時間を格納する配列を初期化
+      const availableSlots = [];
+
+      // 9時から18時までの各時間帯をチェック
+      for (let hour = 9; hour < 18; hour++) {
+        const startTime = new Date(requestedDate);
+        startTime.setHours(hour, 0, 0, 0);
+        const endTime = new Date(startTime.getTime() + 2 * 60 * 60 * 1000); // 2時間枠
+
+        // その時間帯にイベントがない場合、空き時間として追加
+        if (calendar.getEvents(startTime, endTime).length === 0) {
+          availableSlots.push(startTime);
+        }
+      }
+
+      // 空き時間がある場合
+      if (availableSlots.length > 0) {
+        // 空き時間をフォーマットしてメッセージを作成
+        let availableTimes = availableSlots.map(slot => Utilities.formatDate(slot, 'Asia/Tokyo', 'HH:mm')).join(', ');
+        let message = [{
+          type: 'bubble',
+          body: {
+            type: 'box',
+            layout: 'vertical',
+            contents: [
+              {
+                type: 'text',
+                text: `${day}日の空き状況`,
+                weight: 'bold',
+                size: 'lg'
+              },
+              {
+                type: 'text',
+                text: `予約可能時間はこちらです。: ${availableTimes}`,
+                wrap: true,
+                margin: 'md'
+              }
+            ]
+          }
+        }];
+        // メッセージを送信
+        replyFlexMessage(replyToken, message);
+      } else {
+        // 空き時間がない場合のメッセージを送信
+        replyFlexMessage(replyToken, [{
+          type: 'bubble',
+          body: {
+            type: 'box',
+            layout: 'vertical',
+            contents: [
+              {
+                type: 'text',
+                text: `${day}日の空き状況`,
+                weight: 'bold',
+                size: 'lg',
+                wrap: true // 自動改行を有効にする
+              },
+              {
+                type: 'text',
+                text: `${day}日に予約可能な時間はありません。`,
+                wrap: true, // 自動改行を有効にする
+                margin: 'md'
+              }
+            ]
+          }
+        }]);
+      }
+    } else {
+      // それ以外のメッセージには返信しない
+      return;
+    }
+  } catch (error) {
+    // エラーが発生した場合の処理
+    Logger.log('エラーが発生しました: ' + error.message);
+    // サーバーエラーのメッセージを送信
+    replyFlexMessage(replyToken, [{
+      type: 'bubble',
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'text',
+            text: 'サーバーエラー',
+            weight: 'bold',
+                size: 'lg',
+                wrap: true // 自動改行を有効にする
+          },
+          {
+            type: 'text',
+            text: 'サーバーエラーが発生しました。\n後ほど再度お試しください。',
+                margin: 'md',
+                wrap: true // 自動改行を有効にする
+          }
+        ]
+      }
+    }]);
+  }
+}
+
+function parseReservationForm(message) {
+  // 受け取ったメッセージを改行で分割して配列に変換
+  const lines = message.split('\n');
+  // 予約の詳細を格納するオブジェクトを初期化
+  const details = {
+    dates: [],
+    symptoms: '',
+    firstVisit: '',
+    reservation: '',
+    message: '',
+    duration: 120 // デフォルトは2時間（120分）
+  };
+
+try {
+    // 次の行が日付かどうかを示すフラグ
+    let nextLineIsDate = false;
+
+    // 各行をループして予約情報を抽出
+    lines.forEach(line => {
+        if (line.startsWith('お名前：')) {
+            // お名前の行を処理
+            details.name = line.replace('お名前：', '').trim();
+        } else if (line.startsWith('電話番号：')) {
+            // 電話番号の行を処理
+            details.phoneNumber = line.replace('電話番号：', '').trim();
+        } else if (line.startsWith('メニュー：')) {
+            // メニューの行を処理
+            details.symptoms = line.replace('メニュー：', '').trim().split(',').map(item => item.trim());
+
+            // 初期の予約時間を設定
+            details.symptoms.forEach(symptom => {
+                if (symptom === 'まつ毛パーマ') {
+                    details.duration = 60;
+                } else if (symptom === '下まつ毛パーマ') {
+                    details.duration = 40;
+                } else if (symptom === 'まつ毛パーマ上下セット') {
+                    details.duration = 90;
+                } else if (symptom === 'アイシャンプー') {
+                    details.duration = 10;
+                } else if (symptom === '【新規様】まつげパーマ+まゆげWAXセット') {
+                    details.duration = 105;
+                } else if (symptom === '【ご新規様】まゆ毛WAX※Mensは紹介のみ') {
+                    details.duration = 60;
+                } else if (symptom === '【2回目以降】まゆげWAX') {
+                    details.duration = 60;
+                } else if (symptom === 'フェイシャルWAX(パック付き)') {
+                    details.duration = 60;
+                } else if (symptom === 'ポイントメイク') {
+                    details.duration = 45;
+                } else if (symptom === 'ヘアセット') {
+                    details.duration = 40;
+                } else if (symptom === 'キッズヘアセット') {
+                    details.duration = 60;
+                } else if (symptom === 'メイク') {
+                    details.duration = 60;
+                }
+
+                // オプションによる時間の追加
+                const options = [
+                    '【オプション】部分WAX:おでこ',
+                    '【オプション】部分WAX:もみあげ',
+                    '【オプション】部分WAX:鼻まわり',
+                    '【オプション】部分WAX:口まわり',
+                    '【オプション】部分WAX:鼻毛'
+                ];
+
+                // オプションが完全に一致した場合のみ時間を追加
+                options.forEach(option => {
+                    if (symptom === option) {
+                        details.duration += 15;
+                    }
+                });
+            });
+
+        } else if (line.startsWith('ご来店回数：')) {
+            // 来店回数の行を処理
+            details.firstVisit = line.replace('ご来店回数：', '').trim();
+        } else if (line.startsWith('希望日時：')) {
+            // 希望日時の行を処理
+            nextLineIsDate = true;
+        } else if (nextLineIsDate && line.trim() !== '' && !line.startsWith('メッセージ：')) {
+            // 希望日時の次の行を日付として処理
+            const dateTimeStr = line.trim();
+            const dateTime = parseDateTime(dateTimeStr);
+            if (!isNaN(dateTime.getTime())) {
+                details.dates.push(dateTime);
+            }
+        } else if (line.startsWith('メッセージ：')) {
+            // メッセージの行を処理
+            details.message = line.replace('メッセージ：', '').trim();
+            nextLineIsDate = false;
+        }
+    });
+
+    // 日付がない場合はエラーをスロー
+    if (!details.dates.length) {
+      throw new Error('必須項目が入力されていません。');
+    }
+
+    // 抽出した予約情報を返す
+    return details;
+  } catch (error) {
+    // エラーログを記録し、nullを返す
+    Logger.log('予約フォームのパースエラー: ' + error.message);
+    return null;
+  }
+}
+
+function parseDateTime(dateTimeStr) {
+  try {
+    // 日付文字列を正規表現で解析
+    const match = dateTimeStr.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日 (\d{1,2}):(\d{2})$/);
+    if (match) {
+      const year = parseInt(match[1], 10);
+      const month = parseInt(match[2], 10) - 1; // 月は0から始まるため、1を引く
+      const day = parseInt(match[3], 10);
+      const hour = parseInt(match[4], 10);
+      const minute = parseInt(match[5], 10);
+
+      // 日付オブジェクトを返す
+      return new Date(year, month, day, hour, minute);
+    }
+    // 無効な日付形式の場合はエラーをスロー
+    throw new Error('日付形式が無効です: ' + dateTimeStr);
+  } catch (error) {
+    // エラーログを記録し、NaNを返す
+    Logger.log('日付解析エラー: ' + error.message);
+    return NaN;
+  }
+}
+
+function isValidDate(date) {
+  // 日付オブジェクトが有効かどうかをチェック
+  return date instanceof Date && !isNaN(date.getTime());
+}
+
+// Google Calendarから特定の日に「営業日」というイベントがあるかどうかを確認
+function getBusinessHours(date, calendar) {
+  const events = calendar.getEventsForDay(date);
+  for (let i = 0; i < events.length; i++) {
+    if (events[i].getTitle() === '営業日') {
+      // 営業日のイベントの開始時間と終了時間を取得
+      const startTime = events[i].getStartTime();
+      const endTime = events[i].getEndTime();
+      return {
+        start: startTime,
+        end: endTime
+      };
+    }
+  }
+  return null; // 「営業日」のイベントがない場合はnullを返す
+}
+
+function isWithinBusinessHours(date, businessHours) {
+  if (!isValidDate(date)) {
+    return false;
+  }
+
+  if (businessHours) {
+    // 営業日の営業時間内かどうかをチェック
+    const startTime = businessHours.start;
+    const endTime = businessHours.end;
+    return date >= startTime && date <= endTime;
+  }
+
+  // 通常の営業時間を定義
+  const businessHoursByDay = {
+    0: { openingHour: 9, openingMinute: 0, closingHour: 17, closingMinute: 0 }, // 日曜日
+    1: { openingHour: 9, openingMinute: 0, closingHour: 17, closingMinute: 0 }, // 月曜日
+    2: { openingHour: 9, openingMinute: 0, closingHour: 17, closingMinute: 0 }, // 火曜日
+    3: { openingHour: 9, openingMinute: 0, closingHour: 17, closingMinute: 0 }, // 水曜日
+    4: { openingHour: 9, openingMinute: 0, closingHour: 17, closingMinute: 0 }, // 木曜日
+    5: { openingHour: 9, openingMinute: 0, closingHour: 17, closingMinute: 0 }, // 金曜日
+    6: { openingHour: 9, openingMinute: 0, closingHour: 17, closingMinute: 0 }, // 土曜日
+  };
+
+  // 日付から曜日を取得
+  const day = date.getDay();
+  const hours = date.getHours();
+  const minutes = date.getMinutes();
+
+  // 当該曜日の営業時間を取得
+  const { openingHour, openingMinute, closingHour, closingMinute } = businessHoursByDay[day];
+
+  // 営業時間内かどうかをチェック
+  const isAfterOpening = hours > openingHour || (hours === openingHour && minutes >= openingMinute);
+  const isBeforeClosing = hours < closingHour || (hours === closingHour && minutes < closingMinute);
+
+  // 12時から13時までを休憩時間とする
+  const isLunchBreak = (hours === 23 && minutes >= 0 && minutes < 60);
+
+  return isAfterOpening && isBeforeClosing && !isLunchBreak;
+}
+
+function isSunday(date) {
+  if (!isValidDate(date)) {
+    return false;
+  }
+
+  // 日曜日かどうかをチェック
+  return date.getDay() === 7; // 日曜日は0
+}
+
+function getUserProfile(userId) {
+  try {
+    // ユーザープロフィールを取得するためのURLを作成
+    const url = `https://api.line.me/v2/bot/profile/${userId}`;
+    const response = UrlFetchApp.fetch(url, {
+      headers: {
+        'Authorization': 'Bearer ' + CHANNEL_ACCESS_TOKEN,
+      }
+    });
+    if (response.getResponseCode() === 200) {
+      // レスポンスが成功した場合、JSONをパースしてユーザープロフィールを返す
+      return JSON.parse(response.getContentText());
+    } else {
+      // エラーログを記録し、nullを返す
+      Logger.log('ユーザープロフィール取得エラー: ' + response.getResponseCode());
+      return null;
+    }
+  } catch (error) {
+    // エラーログを記録し、nullを返す
+    Logger.log('ユーザープロフィール取得エラー: ' + error.message);
+    return null;
+  }
+}
+
+function replyFlexMessage(replyToken, bubbles) {
+  try {
+    // フレックスメッセージを送信するためのAPIエンドポイント
+    UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
+      headers: {
+        'Content-Type': 'application/json; charset=UTF-8',
+        'Authorization': 'Bearer ' + CHANNEL_ACCESS_TOKEN,
+      },
+      method: 'post',
+      payload: JSON.stringify({
+        replyToken: replyToken,
+        messages: [{
+          type: 'flex',
+          altText: '予約情報',
+          contents: {
+            type: 'carousel',
+            contents: bubbles
+          }
+        }]
+      }),
+    });
+  } catch (error) {
+    // エラーログを記録
+    Logger.log('返信メッセージ送信エラー: ' + error.message);
+  }
+}
+
+function sendReminder() {
+  const calendar = CalendarApp.getCalendarById(CALENDAR_ID);
+  const now = new Date();
+  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours from now
+  const events = calendar.getEventsForDay(tomorrow);
+
+  const userRemindHistory = getUserRemindHistory();
+  const tempSendList = {};
+
+  events.forEach(event => {
+    const userId = event.getLocation();
+    if (userId) {
+      const lastRemindTime = userRemindHistory[userId];
+      const currentTime = new Date().getTime();
+      if (!lastRemindTime || currentTime - lastRemindTime > 2 * 60 * 1000) { // 2 minutes
+        if (!tempSendList[userId]) {
+          const description = event.getDescription();
+          const menuMatch = description.match(/メニュー:\s*(.*?)(?:\n|$)/);
+          const dateMatch = description.match(/希望日時:\s*(.*?)(?:\n|$)/);
+
+          let menuText = menuMatch ? menuMatch[1].trim() : '未設定';
+          let dateText = dateMatch ? dateMatch[1].trim() : '未設定';
+
+          const message = `【自動メッセージ】明日の予約をお知らせします。\n日時: ${dateText}\nメニュー: ${menuText}\n心よりお待ちしております`;
+          sendLineMessage(userId, message);
+
+          userRemindHistory[userId] = currentTime;
+          tempSendList[userId] = true;
+        }
+      }
+    }
+  });
+
+  saveUserRemindHistory(userRemindHistory);
+
+  const triggers = ScriptApp.getProjectTriggers();
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() == 'sendReminder') {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+
+  createCleanUpTrigger();
+  createClearUserRemindHistoryTrigger();
+}
+
+function sendLineMessage(userId, message) {
+  const url = 'https://api.line.me/v2/bot/message/push';
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${CHANNEL_ACCESS_TOKEN}`
+  };
+  const postData = {
+    to: userId,
+    messages: [{
+      type: 'text',
+      text: message
+    }]
+  };
+  const options = {
+    method: 'post',
+    headers: headers,
+    payload: JSON.stringify(postData)
+  };
+
+  UrlFetchApp.fetch(url, options);
+}
+
+function getUserRemindHistory() {
+  const properties = PropertiesService.getScriptProperties();
+  const historyJson = properties.getProperty('userRemindHistory');
+  return historyJson ? JSON.parse(historyJson) : {};
+}
+
+function saveUserRemindHistory(userRemindHistory) {
+  const properties = PropertiesService.getScriptProperties();
+  properties.setProperty('userRemindHistory', JSON.stringify(userRemindHistory));
+}
+
+function cleanUpUserRemindHistory() {
+  const properties = PropertiesService.getScriptProperties();
+  const historyJson = properties.getProperty('userRemindHistory');
+  if (!historyJson) return;
+
+  const userRemindHistory = JSON.parse(historyJson);
+  const currentTime = new Date().getTime();
+  const twoMinutes = 2 * 60 * 1000; // 2 minutes
+
+  for (let userId in userRemindHistory) {
+    if (currentTime - userRemindHistory[userId] > twoMinutes) {
+      delete userRemindHistory[userId];
+    }
+  }
+
+  properties.setProperty('userRemindHistory', JSON.stringify(userRemindHistory));
+}
+
+function clearUserRemindHistory() {
+  const properties = PropertiesService.getScriptProperties();
+  properties.deleteProperty('userRemindHistory');
+
+  // clearUserRemindHistoryトリガーを削除
+  const triggers = ScriptApp.getProjectTriggers();
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() == 'clearUserRemindHistory') {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+}
+
+function createCleanUpTrigger() {
+  const triggers = ScriptApp.getProjectTriggers();
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() == 'cleanUpUserRemindHistory') {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+
+  ScriptApp.newTrigger('cleanUpUserRemindHistory')
+    .timeBased()
+    .everyMinutes(5) // 5分ごとに実行
+    .create();
+}
+
+function createClearUserRemindHistoryTrigger() {
+  const triggers = ScriptApp.getProjectTriggers();
+  let clearTriggerExists = false;
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() == 'clearUserRemindHistory') {
+      clearTriggerExists = true;
+      break;
+    }
+  }
+
+  if (!clearTriggerExists) {
+    ScriptApp.newTrigger('clearUserRemindHistory')
+      .timeBased()
+      .after(2 * 60 * 1000) // 2分後に実行
+      .create();
+  }
+}
